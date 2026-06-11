@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import events
+from . import events, monitor
 from .db import get_session
 from .models import Customer, Message, MessageEvent, Order
 
@@ -109,5 +109,8 @@ async def receipt(body: Receipt, session: AsyncSession = Depends(get_session)):
             "event_type": body.event_type,
         },
     )
+
+    # Throttled mid-campaign delivery check (only calls the model if underperforming).
+    monitor.schedule_check(message.campaign_id)
 
     return {"status": "ok", "message_status": message.status}

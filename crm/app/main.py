@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import sender, stream, webhooks
+from . import analyze, explain, sender, stream, webhooks
+from .agent import runner as agent_runner
 from .db import get_session
 from .models import Campaign, Customer, Message
 
@@ -29,6 +30,9 @@ app.add_middleware(
 app.include_router(webhooks.router)
 app.include_router(sender.router)
 app.include_router(stream.router)
+app.include_router(analyze.router)
+app.include_router(explain.router)
+app.include_router(agent_runner.router)
 
 
 @app.get("/health")

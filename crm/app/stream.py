@@ -73,7 +73,8 @@ async def stream(campaign_id: str):
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                yield f"data: {json.dumps({**data, 'type': 'update'})}\n\n"
+                # default to "update", but preserve an explicit type (e.g. "recommendation")
+                yield f"data: {json.dumps({'type': 'update', **data})}\n\n"
         finally:
             events.unsubscribe(key, queue)
 

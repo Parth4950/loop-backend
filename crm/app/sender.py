@@ -12,11 +12,16 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
-from .models import Campaign, Customer, Message
+from .models import Campaign, Customer, Message, MessageEvent
+
+# Messages that have NOT yet been delivered (delivered/opened/clicked/converted
+# all imply delivery and are left alone on a channel switch).
+_UNDELIVERED = ("queued", "sent", "retrying", "failed")
 
 logger = logging.getLogger("loop-crm.sender")
 
@@ -86,3 +91,65 @@ async def send_campaign(campaign_id: str, session: AsyncSession = Depends(get_se
     task.add_done_callback(_tasks.discard)
 
     return {"sent": len(payloads)}
+
+
+class SwitchChannelRequest(BaseModel):
+    new_channel: str
+
+
+@router.post("/campaigns/{campaign_id}/switch-channel")
+async def switch_channel(
+    campaign_id: str,
+    req: SwitchChannelRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Approval #2: move all not-yet-delivered messages to a new channel and re-send."""
+    try:
+        cid = UUID(campaign_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="campaign_id must be a UUID")
+
+    campaign = await session.get(Campaign, cid)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="unknown campaign")
+
+    campaign.channel = req.new_channel
+
+    rows = (
+        await session.execute(
+            select(Message, Customer)
+            .join(Customer, Message.customer_id == Customer.id)
+            .where(Message.campaign_id == cid, Message.status.in_(_UNDELIVERED))
+        )
+    ).all()
+
+    payloads: list[dict[str, Any]] = []
+    message_ids = []
+    for message, customer in rows:
+        message.status = "queued"
+        message.retry_count = 0
+        message.last_event_at = None
+        message_ids.append(message.id)
+        payloads.append(
+            {
+                "message_id": str(message.id),
+                "recipient": _recipient(req.new_channel, customer),
+                "channel": req.new_channel,
+                "body": campaign.message,
+            }
+        )
+
+    # A switch is a fresh delivery attempt: clear the prior event ledger so the
+    # new channel's callbacks aren't swallowed by the idempotency constraint.
+    if message_ids:
+        await session.execute(
+            delete(MessageEvent).where(MessageEvent.message_id.in_(message_ids))
+        )
+
+    await session.commit()
+
+    task = asyncio.create_task(_deliver(payloads))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+    return {"switched": len(payloads)}
