@@ -9,13 +9,18 @@ from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Numeric, Uuid
+from sqlalchemy import DateTime, ForeignKey, Numeric, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
+
+
+# The existing columns are timestamptz; map them tz-aware so asyncpg round-trips
+# timezone-aware datetimes correctly.
+_TZ = DateTime(timezone=True)
 
 
 class Customer(Base):
@@ -26,7 +31,7 @@ class Customer(Base):
     phone: Mapped[Optional[str]]
     email: Mapped[Optional[str]]
     city: Mapped[Optional[str]]
-    created_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(_TZ)
 
 
 class Campaign(Base):
@@ -42,7 +47,7 @@ class Campaign(Base):
     confidence: Mapped[Optional[Decimal]] = mapped_column(Numeric)
     projected_metrics: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     mid_campaign_recommendation: Mapped[Optional[str]]
-    created_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(_TZ)
 
 
 class Order(Base):
@@ -52,7 +57,7 @@ class Order(Base):
     customer_id: Mapped[UUID] = mapped_column(ForeignKey("customers.id"))
     amount: Mapped[Decimal] = mapped_column(Numeric)
     campaign_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("campaigns.id"))
-    created_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(_TZ)
 
 
 class Message(Base):
@@ -63,7 +68,7 @@ class Message(Base):
     customer_id: Mapped[UUID] = mapped_column(ForeignKey("customers.id"))
     status: Mapped[str]
     retry_count: Mapped[int]
-    last_event_at: Mapped[Optional[datetime]]
+    last_event_at: Mapped[Optional[datetime]] = mapped_column(_TZ)
 
 
 class MessageEvent(Base):
@@ -73,4 +78,4 @@ class MessageEvent(Base):
     message_id: Mapped[UUID] = mapped_column(ForeignKey("messages.id"))
     event_type: Mapped[str]
     payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
-    received_at: Mapped[datetime]
+    received_at: Mapped[datetime] = mapped_column(_TZ)
