@@ -1,4 +1,9 @@
-"""Post-campaign analysis: final funnel stats + ONE Flash insight call."""
+"""Post-campaign analysis: final funnel stats + ONE Flash insight call.
+
+Returns a STABLE, flat shape with safe (never-NaN) rates and insight fields that
+are never empty — even if Gemini rate-limits or fails, the text falls back to
+templated sentences derived from the stats.
+"""
 
 from __future__ import annotations
 
@@ -24,49 +29,74 @@ _INSIGHT_SCHEMA = types.Schema(
     properties={
         "what_worked": types.Schema(type=types.Type.STRING),
         "what_didnt": types.Schema(type=types.Type.STRING),
-        "recommendation": types.Schema(type=types.Type.STRING),
+        "next_step": types.Schema(type=types.Type.STRING),
     },
-    required=["what_worked", "what_didnt", "recommendation"],
+    required=["what_worked", "what_didnt", "next_step"],
 )
 
 
-def _rate(numerator: int, denominator: int) -> float:
-    return round(numerator / denominator, 3) if denominator else 0.0
+def _safe_rate(numerator: int, denominator: int) -> float:
+    """Percentage rounded to 1 dp; 0.0 when the denominator is zero (no NaN)."""
+    return round(100 * numerator / denominator, 1) if denominator else 0.0
 
 
-async def _insight(campaign: Campaign, stats: dict[str, Any]) -> dict[str, str]:
-    rates = stats["rates"]
+def _fallback_text(stats: dict[str, Any]) -> dict[str, str]:
+    """Templated, stat-derived sentences — used whenever a model field is blank."""
+    delivered = stats["delivered"]
+    opened = stats["opened"]
+    clicked = stats["clicked"]
+    converted = stats["converted"]
+    return {
+        "what_worked": (
+            f"{delivered} of {stats['sent']} messages delivered, "
+            f"{clicked} clicked and {converted} converted."
+        ),
+        "what_didnt": f"{opened - clicked} opened but didn't click.",
+        "next_step": (
+            f"Re-engage the {clicked - converted} who clicked but didn't convert "
+            "with a sharper offer."
+        ),
+    }
+
+
+async def _insight(channel: str, stats: dict[str, Any]) -> dict[str, str]:
+    """One Gemini call for the three text fields, guaranteed non-empty per field."""
+    fallback = _fallback_text(stats)
     prompt = (
-        f"Analyze this finished Brew & Co. campaign on {stats['channel']}.\n"
-        f"Audience {stats['audience_size']}, sent {stats['sent']}, delivered {stats['delivered']}, "
-        f"opened {stats['opened']}, clicked {stats['clicked']}, converted {stats['converted']}.\n"
-        f"Rates — delivery {rates['delivery_rate']:.0%}, open {rates['open_rate']:.0%}, "
-        f"click {rates['click_rate']:.0%}, conversion {rates['conversion_rate']:.0%}.\n"
-        f"Attributed revenue ₹{stats['attributed_revenue']:.0f}.\n"
-        "Give a crisp post-mortem as JSON with keys what_worked, what_didnt, recommendation "
+        f"Analyze this finished Brew & Co. campaign on {channel}.\n"
+        f"Sent {stats['sent']}, delivered {stats['delivered']}, opened {stats['opened']}, "
+        f"clicked {stats['clicked']}, converted {stats['converted']}, "
+        f"revenue Rs {stats['revenue']}.\n"
+        f"Rates — open {stats['open_rate']}%, click {stats['click_rate']}%, "
+        f"conversion {stats['conversion_rate']}%.\n"
+        "Give a crisp post-mortem as JSON with keys what_worked, what_didnt, next_step "
         "(one short sentence each)."
     )
+
+    raw = ""
     try:
+        # Keep retries short: there's a solid fallback, so prefer a fast response
+        # over a long 429 backoff that would stall the insight card.
         raw = await llm.generate(
             llm.GEMINI_MODEL,
             prompt,
             system_instruction="You are Loop's campaign analyst for Brew & Co. Be specific and concise.",
             temperature=0.4,
             response_schema=_INSIGHT_SCHEMA,
+            max_attempts=3,
         )
         data = json.loads(raw)
-        return {
-            "what_worked": str(data.get("what_worked", "")).strip(),
-            "what_didnt": str(data.get("what_didnt", "")).strip(),
-            "recommendation": str(data.get("recommendation", "")).strip(),
-        }
     except Exception as exc:
-        logger.warning("analysis LLM call failed (%s); returning fallback", exc)
-        return {
-            "what_worked": "Analysis unavailable (model call failed).",
-            "what_didnt": "",
-            "recommendation": "Retry the analysis shortly.",
-        }
+        # Rate limit, network, or unparseable output — log raw and fall back entirely.
+        logger.warning("analysis insight failed (%s); raw response=%r", exc, raw)
+        return fallback
+
+    # Per-field guard: any missing/blank field is filled from the template.
+    result = {}
+    for key in ("what_worked", "what_didnt", "next_step"):
+        value = str(data.get(key, "")).strip()
+        result[key] = value or fallback[key]
+    return result
 
 
 @router.post("/campaigns/{campaign_id}/analyze")
@@ -111,22 +141,16 @@ async def analyze(campaign_id: str):
         )
 
     stats: dict[str, Any] = {
-        "campaign_id": str(cid),
-        "channel": campaign.channel,
-        "audience_size": total,
         "sent": sent,
         "delivered": delivered,
         "opened": opened,
         "clicked": clicked,
         "converted": converted,
-        "attributed_revenue": float(revenue or 0),
-        "rates": {
-            "delivery_rate": _rate(delivered, sent),
-            "open_rate": _rate(opened, delivered),
-            "click_rate": _rate(clicked, opened),
-            "conversion_rate": _rate(converted, clicked),
-        },
+        "revenue": int(round(float(revenue or 0))),
+        "open_rate": _safe_rate(opened, delivered),
+        "click_rate": _safe_rate(clicked, opened),
+        "conversion_rate": _safe_rate(converted, clicked),
     }
 
-    insight = await _insight(campaign, stats)
-    return {**stats, "insight": insight}
+    insight = await _insight(campaign.channel, stats)
+    return {**stats, **insight}

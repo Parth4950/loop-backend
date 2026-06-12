@@ -8,6 +8,7 @@ display-only rendering of the WHERE clause.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -17,12 +18,34 @@ from sqlalchemy import and_, func, select
 from ..db import AsyncSessionLocal
 from ..models import Campaign, Customer, Message, MessageEvent, Order
 
+logger = logging.getLogger("loop-crm.tools")
+
 # Absolute per-channel rates: (reach, open, click).
 CHANNEL_RATES: dict[str, tuple[float, float, float]] = {
     "whatsapp": (0.93, 0.62, 0.28),
     "sms": (0.87, 0.41, 0.14),
     "email": (0.79, 0.35, 0.09),
 }
+VALID_CHANNELS = tuple(CHANNEL_RATES.keys())
+
+# Common ways the model might phrase a channel -> canonical value.
+_CHANNEL_ALIASES = {
+    "whatsapp": "whatsapp", "wa": "whatsapp", "whats app": "whatsapp", "what's app": "whatsapp",
+    "sms": "sms", "text": "sms", "text message": "sms", "txt": "sms",
+    "email": "email", "e-mail": "email", "mail": "email",
+}
+
+
+def normalize_channel(channel: str) -> str:
+    """Single source of truth for channel values: lowercase + validate against
+    {whatsapp, sms, email}. Anything unrecognized is clamped to a valid channel
+    (whatsapp) — never silently defaulted to email."""
+    c = (channel or "").strip().lower()
+    c = _CHANNEL_ALIASES.get(c, c)
+    if c not in VALID_CHANNELS:
+        logger.warning("invalid channel %r; clamping to 'whatsapp'", channel)
+        c = "whatsapp"
+    return c
 
 
 def _orders_agg():
@@ -70,7 +93,7 @@ def _conditions(agg, filters: dict[str, Any]) -> tuple[list, str]:
 
 def estimate_metrics(segment_size: int, channel: str) -> dict[str, int]:
     """Deterministic projection from absolute per-channel rates. No model call."""
-    reach_r, open_r, click_r = CHANNEL_RATES.get(channel, CHANNEL_RATES["email"])
+    reach_r, open_r, click_r = CHANNEL_RATES[normalize_channel(channel)]
     return {
         "projected_reach": round(segment_size * reach_r),
         "projected_opens": round(segment_size * open_r),
@@ -173,6 +196,9 @@ async def create_campaign(
 ) -> dict[str, Any]:
     """Compile filters, materialize the audience, and persist the campaign +
     one queued message per matched customer."""
+    # Normalize the channel ONCE here — this stored/returned value is the single
+    # source of truth for the plan card, the stored campaign, and the tracker.
+    channel = normalize_channel(channel)
     agg = _orders_agg()
     conds, compiled_sql = _conditions(agg, segment_filters)
     now = datetime.now(timezone.utc)

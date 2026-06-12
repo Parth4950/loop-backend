@@ -30,7 +30,8 @@ AGG_STATUSES = [
 async def _build_snapshot(campaign_id: UUID) -> dict:
     """Read the current message roster + aggregates for a campaign."""
     async with AsyncSessionLocal() as session:
-        if await session.get(Campaign, campaign_id) is None:
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None:
             raise HTTPException(status_code=404, detail="unknown campaign")
 
         rows = (
@@ -50,7 +51,14 @@ async def _build_snapshot(campaign_id: UUID) -> dict:
         if m["status"] in aggregates:
             aggregates[m["status"]] += 1
 
-    return {"type": "snapshot", "messages": messages, "aggregates": aggregates}
+    # Expose the stored channel so the tracker badge reads the single source of
+    # truth (campaign.channel) rather than inferring it.
+    return {
+        "type": "snapshot",
+        "channel": campaign.channel,
+        "messages": messages,
+        "aggregates": aggregates,
+    }
 
 
 @router.get("/campaigns/{campaign_id}/stream")
