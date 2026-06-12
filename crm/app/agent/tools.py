@@ -105,6 +105,17 @@ def estimate_metrics(segment_size: int, channel: str) -> dict[str, int]:
     }
 
 
+def compare_channels(segment_size: int) -> dict[str, Any]:
+    """Projected reach/reads/opens/clicks for EVERY channel in ONE call, from the
+    SAME rates estimate_metrics uses — so the agent can choose by data (and the
+    plan card / what-if comparison share one source of truth). No model call."""
+    size = int(segment_size)
+    return {
+        "segment_size": size,
+        "channels": {ch: estimate_metrics(size, ch) for ch in VALID_CHANNELS},
+    }
+
+
 async def _audience_sample(session, agg, conds: list) -> list[dict[str, Any]]:
     """Up to 5 matching customers (highest spend first) WITH ids, for drill-down."""
     rows = (

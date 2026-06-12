@@ -37,7 +37,7 @@ MAX_TURNS = 8
 STEP_LABELS = {
     "segment_customers": "Analyzing customers",
     "get_campaign_history": "Reviewing past campaigns",
-    "estimate_metrics": "Estimating performance",
+    "compare_channels": "Comparing channels",
     "create_campaign": "Building the plan",
 }
 
@@ -73,15 +73,15 @@ _FUNCTION_DECLARATIONS = [
         parameters=types.Schema(type=_OBJ, properties={}),
     ),
     types.FunctionDeclaration(
-        name="estimate_metrics",
-        description="Deterministically project reach/opens/clicks for an audience on a channel.",
+        name="compare_channels",
+        description=(
+            "Project reach/opens/clicks for ALL channels (whatsapp, rcs, sms, email) at once, "
+            "from the same rates for every channel. Call this to choose the channel by data."
+        ),
         parameters=types.Schema(
             type=_OBJ,
-            properties={
-                "segment_size": types.Schema(type=_INT),
-                "channel": types.Schema(type=_STR, description="whatsapp | sms | email | rcs"),
-            },
-            required=["segment_size", "channel"],
+            properties={"segment_size": types.Schema(type=_INT)},
+            required=["segment_size"],
         ),
     ),
     types.FunctionDeclaration(
@@ -131,8 +131,8 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         return await tools.segment_customers(args.get("filters") or {})
     if name == "get_campaign_history":
         return await tools.get_campaign_history()
-    if name == "estimate_metrics":
-        return tools.estimate_metrics(int(args["segment_size"]), str(args["channel"]))
+    if name == "compare_channels":
+        return tools.compare_channels(int(args["segment_size"]))
     if name == "create_campaign":
         return await tools.create_campaign(
             segment_filters=args.get("segment_filters") or {},
@@ -230,8 +230,16 @@ async def run_agent(prompt: str) -> AsyncIterator[str]:
         yield _line({"type": "error", "message": "agent did not produce a campaign plan"})
         return
 
+    # Chosen channel, plan projections, and the what-if comparison all derive from
+    # ONE compare_channels call on the authoritative audience size, so they can
+    # never disagree with each other.
+    comparison = tools.compare_channels(plan_result["audience_size"])["channels"]
+    chosen = plan_result["channel"]
+
     plan = {
         **plan_result,
+        "projected": comparison.get(chosen, plan_result.get("projected")),
+        "channel_comparison": comparison,
         "explainability": _explainability(plan_result),
         "memory_note": _memory_note(history_result),
     }
