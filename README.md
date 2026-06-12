@@ -68,7 +68,6 @@ Create a `.env` in the repo root (never commit it):
 
 ## Live URLs
 
-> Replace with your deployment URLs.
 
 - **App:** `https://loop-frontend-nine.vercel.app/`
 - **CRM API:** `loop-backend-production-c717.up.railway.app`
