@@ -25,9 +25,9 @@ router = APIRouter()
 
 # Forward-only ladder. Status values outside it (retrying/failed) rank below
 # the ladder so any genuine progress event still upgrades them.
-LADDER = ["queued", "sent", "delivered", "opened", "clicked", "converted"]
+LADDER = ["queued", "sent", "delivered", "read", "opened", "clicked", "converted"]
 RANK = {name: i for i, name in enumerate(LADDER)}
-LADDER_EVENTS = {"delivered", "opened", "clicked", "converted"}
+LADDER_EVENTS = {"delivered", "read", "opened", "clicked", "converted"}
 
 
 def _rank(status: Optional[str]) -> int:

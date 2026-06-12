@@ -132,6 +132,7 @@ async def analyze(campaign_id: str):
         ).all()
         ev = {event_type: n for event_type, n in event_rows}
         delivered = ev.get("delivered", 0)
+        read = ev.get("read", 0)
         opened = ev.get("opened", 0)
         clicked = ev.get("clicked", 0)
         converted = ev.get("converted", 0)
@@ -143,6 +144,7 @@ async def analyze(campaign_id: str):
     stats: dict[str, Any] = {
         "sent": sent,
         "delivered": delivered,
+        "read": read,
         "opened": opened,
         "clicked": clicked,
         "converted": converted,

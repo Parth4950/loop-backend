@@ -20,11 +20,13 @@ from ..models import Campaign, Customer, Message, MessageEvent, Order
 
 logger = logging.getLogger("loop-crm.tools")
 
-# Absolute per-channel rates: (reach, open, click).
-CHANNEL_RATES: dict[str, tuple[float, float, float]] = {
-    "whatsapp": (0.93, 0.62, 0.28),
-    "sms": (0.87, 0.41, 0.14),
-    "email": (0.79, 0.35, 0.09),
+# Absolute per-channel rates: (reach, read, open, click). RCS is a high-
+# engagement channel (rich messaging with read receipts).
+CHANNEL_RATES: dict[str, tuple[float, float, float, float]] = {
+    "whatsapp": (0.93, 0.75, 0.62, 0.28),
+    "sms": (0.87, 0.55, 0.41, 0.14),
+    "email": (0.79, 0.50, 0.35, 0.09),
+    "rcs": (0.90, 0.72, 0.61, 0.26),
 }
 VALID_CHANNELS = tuple(CHANNEL_RATES.keys())
 
@@ -33,13 +35,14 @@ _CHANNEL_ALIASES = {
     "whatsapp": "whatsapp", "wa": "whatsapp", "whats app": "whatsapp", "what's app": "whatsapp",
     "sms": "sms", "text": "sms", "text message": "sms", "txt": "sms",
     "email": "email", "e-mail": "email", "mail": "email",
+    "rcs": "rcs", "rich communication services": "rcs",
 }
 
 
 def normalize_channel(channel: str) -> str:
     """Single source of truth for channel values: lowercase + validate against
-    {whatsapp, sms, email}. Anything unrecognized is clamped to a valid channel
-    (whatsapp) — never silently defaulted to email."""
+    {whatsapp, sms, email, rcs}. Anything unrecognized is clamped to a valid
+    channel (whatsapp) — never silently defaulted to email."""
     c = (channel or "").strip().lower()
     c = _CHANNEL_ALIASES.get(c, c)
     if c not in VALID_CHANNELS:
@@ -93,12 +96,35 @@ def _conditions(agg, filters: dict[str, Any]) -> tuple[list, str]:
 
 def estimate_metrics(segment_size: int, channel: str) -> dict[str, int]:
     """Deterministic projection from absolute per-channel rates. No model call."""
-    reach_r, open_r, click_r = CHANNEL_RATES[normalize_channel(channel)]
+    reach_r, read_r, open_r, click_r = CHANNEL_RATES[normalize_channel(channel)]
     return {
         "projected_reach": round(segment_size * reach_r),
+        "projected_reads": round(segment_size * read_r),
         "projected_opens": round(segment_size * open_r),
         "projected_clicks": round(segment_size * click_r),
     }
+
+
+async def _audience_sample(session, agg, conds: list) -> list[dict[str, Any]]:
+    """Up to 5 matching customers (highest spend first) WITH ids, for drill-down."""
+    rows = (
+        await session.execute(
+            select(Customer.id, Customer.name, agg.c.total_spend, agg.c.last_order)
+            .join(agg, agg.c.customer_id == Customer.id)
+            .where(and_(*conds))
+            .order_by(agg.c.total_spend.desc())
+            .limit(5)
+        )
+    ).all()
+    return [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "last_order": r.last_order.isoformat() if r.last_order else None,
+            "total_spend": float(r.total_spend),
+        }
+        for r in rows
+    ]
 
 
 async def segment_customers(filters: dict[str, Any]) -> dict[str, Any]:
@@ -106,27 +132,22 @@ async def segment_customers(filters: dict[str, Any]) -> dict[str, Any]:
     agg = _orders_agg()
     conds, compiled_sql = _conditions(agg, filters)
 
-    base = (
-        select(Customer.name, agg.c.total_spend, agg.c.last_order)
+    count_query = select(func.count()).select_from(
+        select(Customer.id)
         .join(agg, agg.c.customer_id == Customer.id)
         .where(and_(*conds))
+        .subquery()
     )
 
     async with AsyncSessionLocal() as session:
-        count = await session.scalar(select(func.count()).select_from(base.subquery()))
-        rows = (
-            await session.execute(base.order_by(agg.c.total_spend.desc()).limit(5))
-        ).all()
+        count = await session.scalar(count_query)
+        audience_sample = await _audience_sample(session, agg, conds)
 
-    sample = [
-        {
-            "name": r.name,
-            "last_order": r.last_order.isoformat() if r.last_order else None,
-            "total_spend": float(r.total_spend),
-        }
-        for r in rows
-    ]
-    return {"count": int(count or 0), "sample": sample, "compiled_sql": compiled_sql}
+    return {
+        "count": int(count or 0),
+        "audience_sample": audience_sample,
+        "compiled_sql": compiled_sql,
+    }
 
 
 async def get_campaign_history() -> list[dict[str, Any]]:
@@ -214,6 +235,7 @@ async def create_campaign(
 
         audience_size = len(customer_ids)
         projected = estimate_metrics(audience_size, channel)
+        audience_sample = await _audience_sample(session, agg, conds)
 
         campaign = Campaign(
             id=uuid4(),
@@ -255,4 +277,5 @@ async def create_campaign(
         "compiled_sql": compiled_sql,
         "segment_filters": segment_filters or {},
         "projected": projected,
+        "audience_sample": audience_sample,
     }

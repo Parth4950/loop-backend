@@ -34,8 +34,8 @@ _tasks: set[asyncio.Task] = set()
 
 
 def _recipient(channel: str, customer: Customer) -> str | None:
-    """Phone for whatsapp/sms, email for email."""
-    if channel in ("whatsapp", "sms"):
+    """Phone for whatsapp/sms/rcs, email for email."""
+    if channel in ("whatsapp", "sms", "rcs"):
         return customer.phone
     return customer.email
 

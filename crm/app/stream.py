@@ -22,7 +22,7 @@ router = APIRouter()
 
 KEEPALIVE_SECONDS = 15
 AGG_STATUSES = [
-    "queued", "sent", "delivered", "opened",
+    "queued", "sent", "delivered", "read", "opened",
     "clicked", "converted", "failed", "retrying",
 ]
 

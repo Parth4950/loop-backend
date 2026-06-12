@@ -79,7 +79,7 @@ _FUNCTION_DECLARATIONS = [
             type=_OBJ,
             properties={
                 "segment_size": types.Schema(type=_INT),
-                "channel": types.Schema(type=_STR, description="whatsapp | sms | email"),
+                "channel": types.Schema(type=_STR, description="whatsapp | sms | email | rcs"),
             },
             required=["segment_size", "channel"],
         ),
@@ -92,7 +92,7 @@ _FUNCTION_DECLARATIONS = [
             properties={
                 "segment_filters": _FILTERS_SCHEMA,
                 "message": types.Schema(type=_STR, description="The short, on-brand campaign message."),
-                "channel": types.Schema(type=_STR, description="whatsapp | sms | email"),
+                "channel": types.Schema(type=_STR, description="whatsapp | sms | email | rcs"),
                 "confidence": types.Schema(type=_INT, description="0-100 confidence in the plan."),
                 "reason": types.Schema(type=_STR, description="One paragraph: why this audience/channel and exclusions."),
             },

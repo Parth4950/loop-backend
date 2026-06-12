@@ -29,11 +29,14 @@ CRM_URL = os.environ.get("CRM_URL", "http://localhost:8000").rstrip("/")
 RIG_LOW_DELIVERY_CHANNEL = os.environ.get("RIG_LOW_DELIVERY_CHANNEL")
 RIGGED_DELIVERY_PROB = 0.18
 
-# Per-channel funnel as CONDITIONAL probabilities at each stage.
+# Per-channel funnel as CONDITIONAL probabilities at each stage. Each stage is
+# conditioned on the previous one: read|delivered, open|read, click|opened,
+# convert|clicked.
 FUNNEL: dict[str, dict[str, float]] = {
-    "whatsapp": {"deliver": 0.93, "open": 0.67, "click": 0.45, "convert": 0.30},
-    "sms": {"deliver": 0.87, "open": 0.47, "click": 0.34, "convert": 0.30},
-    "email": {"deliver": 0.79, "open": 0.44, "click": 0.26, "convert": 0.30},
+    "whatsapp": {"deliver": 0.93, "read": 0.78, "open": 0.67, "click": 0.45, "convert": 0.30},
+    "sms": {"deliver": 0.87, "read": 0.55, "open": 0.47, "click": 0.34, "convert": 0.30},
+    "email": {"deliver": 0.79, "read": 0.50, "open": 0.44, "click": 0.26, "convert": 0.30},
+    "rcs": {"deliver": 0.90, "read": 0.80, "open": 0.85, "click": 0.42, "convert": 0.30},
 }
 _DEFAULT_FUNNEL = FUNNEL["email"]
 
@@ -115,19 +118,25 @@ async def simulate_message(
             return
         await _post_callback(client, message_id, "delivered")
 
-        # 4. open
+        # 4. read (between delivered and opened)
+        await _sleep(2, 6)
+        if random.random() >= funnel["read"]:
+            return
+        await _post_callback(client, message_id, "read")
+
+        # 5. open
         await _sleep(3, 10)
         if random.random() >= funnel["open"]:
             return
         await _post_callback(client, message_id, "opened")
 
-        # 5. click
+        # 6. click
         await _sleep(2, 6)
         if random.random() >= funnel["click"]:
             return
         await _post_callback(client, message_id, "clicked")
 
-        # 6. convert
+        # 7. convert
         await _sleep(2, 5)
         if random.random() >= funnel["convert"]:
             return

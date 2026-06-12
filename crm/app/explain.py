@@ -10,6 +10,7 @@ assumption (see events.py); use a shared cache/Redis at scale.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -21,9 +22,12 @@ from .agent import llm
 from .db import AsyncSessionLocal
 from .models import Campaign, Customer, Order
 
+logger = logging.getLogger("loop-crm.explain")
+
 router = APIRouter()
 
-# (customer_id, campaign_id) -> reason string
+# (customer_id, campaign_id) -> explanation string.
+# In-memory, single-instance assumption (see events.py); persist/Redis at scale.
 _cache: dict[tuple[str, str], str] = {}
 
 
@@ -41,6 +45,21 @@ def _build_prompt(customer: Customer, campaign: Campaign, stats: dict[str, Any])
     )
 
 
+def _fallback(customer: Customer, stats: dict[str, Any]) -> str:
+    """Templated explanation from the customer's stats — never empty."""
+    days = stats["days_inactive"]
+    if days is None:
+        recency, churn = "has never placed an order", "high churn risk"
+    else:
+        recency = f"last ordered {days} days ago"
+        churn = "high churn risk" if days > 60 else "moderate churn risk" if days > 30 else "low churn risk"
+    return (
+        f"{customer.name} has spent Rs {stats['total_spend']:.0f} across "
+        f"{stats['order_count']} orders (avg Rs {stats['avg_order_value']:.0f}) and {recency}, "
+        f"which signals {churn} and a strong fit for this segment."
+    )
+
+
 @router.get("/customers/{customer_id}/explain")
 async def explain_customer(
     customer_id: str,
@@ -53,13 +72,8 @@ async def explain_customer(
         raise HTTPException(status_code=400, detail="customer_id and campaign_id must be UUIDs")
 
     cache_key = (str(cust_uuid), str(camp_uuid))
-    if cache_key in _cache:
-        return {
-            "customer_id": cache_key[0],
-            "campaign_id": cache_key[1],
-            "reason": _cache[cache_key],
-            "cached": True,
-        }
+    if cache_key in _cache:  # repeat view -> zero model calls
+        return {"explanation": _cache[cache_key]}
 
     async with AsyncSessionLocal() as session:
         customer = await session.get(Customer, cust_uuid)
@@ -91,21 +105,24 @@ async def explain_customer(
         "avg_order_value": round(total_spend / order_count, 2) if order_count else 0.0,
     }
 
-    reason = (
-        await llm.generate(
-            llm.GEMINI_MODEL_LITE,
-            _build_prompt(customer, campaign, stats),
-            system_instruction="You are Loop's audience analyst for Brew & Co. Write crisp, marketer-friendly explanations.",
-            temperature=0.4,
-        )
-    ).strip()
+    try:
+        # Keep retries short: there's a solid fallback, so prefer a fast response
+        # over a long 429 backoff for a UI drill-down.
+        explanation = (
+            await llm.generate(
+                llm.GEMINI_MODEL_LITE,
+                _build_prompt(customer, campaign, stats),
+                system_instruction="You are Loop's audience analyst for Brew & Co. Write crisp, marketer-friendly explanations.",
+                temperature=0.4,
+                max_attempts=3,
+            )
+        ).strip()
+    except Exception as exc:
+        logger.warning("explain LLM call failed (%s); using fallback", exc)
+        explanation = ""
 
-    _cache[cache_key] = reason
-    return {
-        "customer_id": cache_key[0],
-        "campaign_id": cache_key[1],
-        "name": customer.name,
-        "reason": reason,
-        "stats": stats,
-        "cached": False,
-    }
+    if not explanation:  # model failure or blank -> never return empty
+        explanation = _fallback(customer, stats)
+
+    _cache[cache_key] = explanation
+    return {"explanation": explanation}

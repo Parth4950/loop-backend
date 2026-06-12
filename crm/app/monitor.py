@@ -139,7 +139,7 @@ async def maybe_recommend(campaign_id: UUID) -> None:
             if total == 0:
                 return
 
-            delivered = sum(counts.get(s, 0) for s in ("delivered", "opened", "clicked", "converted"))
+            delivered = sum(counts.get(s, 0) for s in ("delivered", "read", "opened", "clicked", "converted"))
             failed = counts.get("failed", 0)
             pending = counts.get("queued", 0) + counts.get("sent", 0) + counts.get("retrying", 0)
             processed = delivered + failed
