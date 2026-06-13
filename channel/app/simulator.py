@@ -78,13 +78,21 @@ async def _post_callback(
             if attempt == attempts:
                 logger.error(
                     "callback %s FAILED after %d attempts (msg=%s): %s",
-                    event_type, attempts, message_id, exc,
+                    event_type,
+                    attempts,
+                    message_id,
+                    exc,
                 )
                 return
             backoff = 0.5 * attempt
             logger.warning(
                 "callback %s attempt %d/%d failed (msg=%s): %s — retrying in %.1fs",
-                event_type, attempt, attempts, message_id, exc, backoff,
+                event_type,
+                attempt,
+                attempts,
+                message_id,
+                exc,
+                backoff,
             )
             await asyncio.sleep(backoff)
 

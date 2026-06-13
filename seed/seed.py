@@ -17,8 +17,8 @@ Only customers/orders are touched; campaigns/messages/message_events stay empty.
 """
 
 import os
-import sys
 import random
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -35,13 +35,13 @@ except ImportError:
 SEED = 42
 random.seed(SEED)
 
-N_DORMANT_HIGH = 140   # Cohort A — the hero demo segment (target 130–150)
-N_ACTIVE_HIGH = 60     # Cohort B — high spend but excluded by recency
-N_LOW_SPEND = 100      # Cohort C — excluded by spend
+N_DORMANT_HIGH = 140  # Cohort A — the hero demo segment (target 130–150)
+N_ACTIVE_HIGH = 60  # Cohort B — high spend but excluded by recency
+N_LOW_SPEND = 100  # Cohort C — excluded by spend
 TOTAL_CUSTOMERS = N_DORMANT_HIGH + N_ACTIVE_HIGH + N_LOW_SPEND  # 300
 
-HIGH_SPEND_THRESHOLD = 5000   # rupees; matches the agent's segment filter
-RECENCY_DAYS = 60             # the recency cut-off the agent uses
+HIGH_SPEND_THRESHOLD = 5000  # rupees; matches the agent's segment filter
+RECENCY_DAYS = 60  # the recency cut-off the agent uses
 
 NOW = datetime.now(timezone.utc)
 
@@ -50,44 +50,140 @@ NOW = datetime.now(timezone.utc)
 # ---------------------------------------------------------------------------
 FIRST_NAMES = [
     # North
-    "Aarav", "Vihaan", "Ishaan", "Kabir", "Rohit", "Aman", "Harshit", "Yash",
-    "Simran", "Priya", "Neha", "Pooja", "Ananya", "Ritika", "Kavya", "Sneha",
+    "Aarav",
+    "Vihaan",
+    "Ishaan",
+    "Kabir",
+    "Rohit",
+    "Aman",
+    "Harshit",
+    "Yash",
+    "Simran",
+    "Priya",
+    "Neha",
+    "Pooja",
+    "Ananya",
+    "Ritika",
+    "Kavya",
+    "Sneha",
     # South
-    "Arjun", "Karthik", "Surya", "Vignesh", "Hari", "Ganesh", "Pranav", "Sandeep",
-    "Lakshmi", "Divya", "Meena", "Anjali", "Swathi", "Deepa", "Nithya", "Revathi",
+    "Arjun",
+    "Karthik",
+    "Surya",
+    "Vignesh",
+    "Hari",
+    "Ganesh",
+    "Pranav",
+    "Sandeep",
+    "Lakshmi",
+    "Divya",
+    "Meena",
+    "Anjali",
+    "Swathi",
+    "Deepa",
+    "Nithya",
+    "Revathi",
     # East
-    "Soumya", "Rahul", "Abhijit", "Debojit", "Sourav", "Tanmay", "Arnab", "Bikram",
-    "Riya", "Moumita", "Ipsita", "Sutapa", "Paromita", "Madhumita", "Sromona", "Trisha",
+    "Soumya",
+    "Rahul",
+    "Abhijit",
+    "Debojit",
+    "Sourav",
+    "Tanmay",
+    "Arnab",
+    "Bikram",
+    "Riya",
+    "Moumita",
+    "Ipsita",
+    "Sutapa",
+    "Paromita",
+    "Madhumita",
+    "Sromona",
+    "Trisha",
     # West
-    "Het", "Jay", "Parth", "Dhruv", "Nikhil", "Manav", "Rohan", "Aditya",
-    "Isha", "Aditi", "Khushi", "Vaishnavi", "Sakshi", "Mitali", "Janhvi", "Diya",
+    "Het",
+    "Jay",
+    "Parth",
+    "Dhruv",
+    "Nikhil",
+    "Manav",
+    "Rohan",
+    "Aditya",
+    "Isha",
+    "Aditi",
+    "Khushi",
+    "Vaishnavi",
+    "Sakshi",
+    "Mitali",
+    "Janhvi",
+    "Diya",
 ]
 
 LAST_NAMES = [
     # North
-    "Sharma", "Verma", "Gupta", "Malhotra", "Chauhan", "Sehgal", "Bhatia", "Khanna",
+    "Sharma",
+    "Verma",
+    "Gupta",
+    "Malhotra",
+    "Chauhan",
+    "Sehgal",
+    "Bhatia",
+    "Khanna",
     # South
-    "Reddy", "Nair", "Iyer", "Menon", "Pillai", "Naidu", "Raju", "Krishnan",
+    "Reddy",
+    "Nair",
+    "Iyer",
+    "Menon",
+    "Pillai",
+    "Naidu",
+    "Raju",
+    "Krishnan",
     # East
-    "Banerjee", "Chatterjee", "Mukherjee", "Das", "Bose", "Ghosh", "Sen", "Dutta",
+    "Banerjee",
+    "Chatterjee",
+    "Mukherjee",
+    "Das",
+    "Bose",
+    "Ghosh",
+    "Sen",
+    "Dutta",
     # West
-    "Patel", "Shah", "Joshi", "Desai", "Kulkarni", "Deshpande", "Pawar", "Mehta",
+    "Patel",
+    "Shah",
+    "Joshi",
+    "Desai",
+    "Kulkarni",
+    "Deshpande",
+    "Pawar",
+    "Mehta",
 ]
 
 CITIES = [
     # Metros
-    "Bengaluru", "Mumbai", "Delhi", "Hyderabad", "Chennai", "Kolkata", "Pune",
+    "Bengaluru",
+    "Mumbai",
+    "Delhi",
+    "Hyderabad",
+    "Chennai",
+    "Kolkata",
+    "Pune",
     # Tier-2
-    "Jaipur", "Kochi", "Indore", "Nagpur", "Surat", "Lucknow", "Coimbatore",
-    "Bhopal", "Visakhapatnam", "Chandigarh",
+    "Jaipur",
+    "Kochi",
+    "Indore",
+    "Nagpur",
+    "Surat",
+    "Lucknow",
+    "Coimbatore",
+    "Bhopal",
+    "Visakhapatnam",
+    "Chandigarh",
 ]
 
 
 def make_phone() -> str:
     """Indian mobile: +91 followed by 10 digits starting 6-9."""
-    return "+91" + str(random.randint(6, 9)) + "".join(
-        str(random.randint(0, 9)) for _ in range(9)
-    )
+    return "+91" + str(random.randint(6, 9)) + "".join(str(random.randint(0, 9)) for _ in range(9))
 
 
 def make_email(first: str, last: str, taken: set) -> str:
@@ -127,8 +223,8 @@ def amounts_summing_above(n: int, lo_total: float, hi_total: float) -> list:
 # Build the dataset in memory
 # ---------------------------------------------------------------------------
 def build_dataset():
-    customers = []          # tuples for insert
-    orders = []             # tuples for insert
+    customers = []  # tuples for insert
+    orders = []  # tuples for insert
     emails_taken = set()
 
     def new_customer(signup_min_days, signup_max_days):
@@ -237,14 +333,12 @@ def main():
                 total_orders, total_value = cur.fetchone()
 
                 # Exact count of Cohort A as the agent would compute it.
-                cur.execute(
-                    """
+                cur.execute("""
                     select count(*) from customers c
                     join (select customer_id, sum(amount) spend, max(created_at) last_order
                           from orders group by customer_id) o on o.customer_id = c.id
                     where o.spend > 5000 and o.last_order < now() - interval '60 days';
-                    """
-                )
+                    """)
                 cohort_a_count = cur.fetchone()[0]
     finally:
         conn.close()

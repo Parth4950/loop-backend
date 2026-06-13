@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
 from uuid import UUID
 
 from google.genai import types
@@ -97,7 +96,9 @@ async def _ask_switch(
         raw = await llm.generate(
             llm.GEMINI_MODEL_LITE,
             prompt,
-            system_instruction="You are Loop's live campaign monitor for Brew & Co. Be terse and decisive.",
+            system_instruction=(
+                "You are Loop's live campaign monitor for Brew & Co. Be terse and decisive."
+            ),
             temperature=0.3,
             response_schema=_RECO_SCHEMA,
         )
@@ -139,7 +140,9 @@ async def maybe_recommend(campaign_id: UUID) -> None:
             if total == 0:
                 return
 
-            delivered = sum(counts.get(s, 0) for s in ("delivered", "read", "opened", "clicked", "converted"))
+            delivered = sum(
+                counts.get(s, 0) for s in ("delivered", "read", "opened", "clicked", "converted")
+            )
             failed = counts.get("failed", 0)
             pending = counts.get("queued", 0) + counts.get("sent", 0) + counts.get("retrying", 0)
             processed = delivered + failed

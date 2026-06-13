@@ -27,8 +27,10 @@ def _safe_rate(numerator: int, denominator: int) -> float:
 async def list_campaigns() -> list[dict[str, Any]]:
     async with AsyncSessionLocal() as session:
         campaigns = (
-            await session.execute(select(Campaign).order_by(Campaign.created_at.desc()))
-        ).scalars().all()
+            (await session.execute(select(Campaign).order_by(Campaign.created_at.desc())))
+            .scalars()
+            .all()
+        )
         if not campaigns:
             return []
 

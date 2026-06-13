@@ -62,8 +62,8 @@ async def dev_test_campaign(session: AsyncSession = Depends(get_session)):
     session.add(campaign)
 
     customers = (
-        await session.execute(select(Customer).order_by(func.random()).limit(15))
-    ).scalars().all()
+        (await session.execute(select(Customer).order_by(func.random()).limit(15))).scalars().all()
+    )
     for customer in customers:
         session.add(
             Message(

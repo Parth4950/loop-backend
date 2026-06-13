@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import and_, func, select
 
 from ..db import AsyncSessionLocal
 from ..models import Campaign, Customer, Message, MessageEvent, Order
+from ..sender import render_message
 
 logger = logging.getLogger("loop-crm.tools")
 
@@ -32,10 +33,19 @@ VALID_CHANNELS = tuple(CHANNEL_RATES.keys())
 
 # Common ways the model might phrase a channel -> canonical value.
 _CHANNEL_ALIASES = {
-    "whatsapp": "whatsapp", "wa": "whatsapp", "whats app": "whatsapp", "what's app": "whatsapp",
-    "sms": "sms", "text": "sms", "text message": "sms", "txt": "sms",
-    "email": "email", "e-mail": "email", "mail": "email",
-    "rcs": "rcs", "rich communication services": "rcs",
+    "whatsapp": "whatsapp",
+    "wa": "whatsapp",
+    "whats app": "whatsapp",
+    "what's app": "whatsapp",
+    "sms": "sms",
+    "text": "sms",
+    "text message": "sms",
+    "txt": "sms",
+    "email": "email",
+    "e-mail": "email",
+    "mail": "email",
+    "rcs": "rcs",
+    "rich communication services": "rcs",
 }
 
 
@@ -165,10 +175,10 @@ async def get_campaign_history() -> list[dict[str, Any]]:
     """Last 5 campaigns with audience size and engagement rates (empty if none)."""
     async with AsyncSessionLocal() as session:
         campaigns = (
-            await session.execute(
-                select(Campaign).order_by(Campaign.created_at.desc()).limit(5)
-            )
-        ).scalars().all()
+            (await session.execute(select(Campaign).order_by(Campaign.created_at.desc()).limit(5)))
+            .scalars()
+            .all()
+        )
         if not campaigns:
             return []
 
@@ -205,7 +215,11 @@ async def get_campaign_history() -> list[dict[str, Any]]:
     for c in campaigns:
         size = audience.get(c.id, 0)
         ev = events.get(c.id, {})
-        opened, clicked, converted = ev.get("opened", 0), ev.get("clicked", 0), ev.get("converted", 0)
+        opened, clicked, converted = (
+            ev.get("opened", 0),
+            ev.get("clicked", 0),
+            ev.get("converted", 0),
+        )
         history.append(
             {
                 "name": c.name,
@@ -237,12 +251,16 @@ async def create_campaign(
 
     async with AsyncSessionLocal() as session:
         customer_ids = (
-            await session.execute(
-                select(Customer.id)
-                .join(agg, agg.c.customer_id == Customer.id)
-                .where(and_(*conds))
+            (
+                await session.execute(
+                    select(Customer.id)
+                    .join(agg, agg.c.customer_id == Customer.id)
+                    .where(and_(*conds))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         audience_size = len(customer_ids)
         projected = estimate_metrics(audience_size, channel)
@@ -278,6 +296,10 @@ async def create_campaign(
         await session.commit()
         campaign_id = str(campaign.id)
 
+    # A real rendered example for the UI, using the first sample customer's name.
+    preview_name = audience_sample[0]["name"] if audience_sample else None
+    message_preview = render_message(message, preview_name)
+
     return {
         "campaign_id": campaign_id,
         "audience_size": audience_size,
@@ -285,6 +307,7 @@ async def create_campaign(
         "confidence": confidence,
         "reason": reason,
         "message": message,
+        "message_preview": message_preview,
         "compiled_sql": compiled_sql,
         "segment_filters": segment_filters or {},
         "projected": projected,

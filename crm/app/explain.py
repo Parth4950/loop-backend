@@ -52,7 +52,11 @@ def _fallback(customer: Customer, stats: dict[str, Any]) -> str:
         recency, churn = "has never placed an order", "high churn risk"
     else:
         recency = f"last ordered {days} days ago"
-        churn = "high churn risk" if days > 60 else "moderate churn risk" if days > 30 else "low churn risk"
+        churn = (
+            "high churn risk"
+            if days > 60
+            else "moderate churn risk" if days > 30 else "low churn risk"
+        )
     return (
         f"{customer.name} has spent Rs {stats['total_spend']:.0f} across "
         f"{stats['order_count']} orders (avg Rs {stats['avg_order_value']:.0f}) and {recency}, "
@@ -112,7 +116,10 @@ async def explain_customer(
             await llm.generate(
                 llm.GEMINI_MODEL_LITE,
                 _build_prompt(customer, campaign, stats),
-                system_instruction="You are Loop's audience analyst for Brew & Co. Write crisp, marketer-friendly explanations.",
+                system_instruction=(
+                    "You are Loop's audience analyst for Brew & Co. "
+                    "Write crisp, marketer-friendly explanations."
+                ),
                 temperature=0.4,
                 max_attempts=3,
             )

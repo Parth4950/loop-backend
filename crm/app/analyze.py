@@ -80,7 +80,9 @@ async def _insight(channel: str, stats: dict[str, Any]) -> dict[str, str]:
         raw = await llm.generate(
             llm.GEMINI_MODEL,
             prompt,
-            system_instruction="You are Loop's campaign analyst for Brew & Co. Be specific and concise.",
+            system_instruction=(
+                "You are Loop's campaign analyst for Brew & Co. Be specific and concise."
+            ),
             temperature=0.4,
             response_schema=_INSIGHT_SCHEMA,
             max_attempts=3,

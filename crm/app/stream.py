@@ -22,8 +22,15 @@ router = APIRouter()
 
 KEEPALIVE_SECONDS = 15
 AGG_STATUSES = [
-    "queued", "sent", "delivered", "read", "opened",
-    "clicked", "converted", "failed", "retrying",
+    "queued",
+    "sent",
+    "delivered",
+    "read",
+    "opened",
+    "clicked",
+    "converted",
+    "failed",
+    "retrying",
 ]
 
 
@@ -42,10 +49,7 @@ async def _build_snapshot(campaign_id: UUID) -> dict:
             )
         ).all()
 
-    messages = [
-        {"id": str(m.id), "customer_name": c.name, "status": m.status}
-        for m, c in rows
-    ]
+    messages = [{"id": str(m.id), "customer_name": c.name, "status": m.status} for m, c in rows]
     aggregates = {status: 0 for status in AGG_STATUSES}
     for m in messages:
         if m["status"] in aggregates:

@@ -65,7 +65,9 @@ _FUNCTION_DECLARATIONS = [
     types.FunctionDeclaration(
         name="segment_customers",
         description="Count and sample the customers matching a set of segment filters.",
-        parameters=types.Schema(type=_OBJ, properties={"filters": _FILTERS_SCHEMA}, required=["filters"]),
+        parameters=types.Schema(
+            type=_OBJ, properties={"filters": _FILTERS_SCHEMA}, required=["filters"]
+        ),
     ),
     types.FunctionDeclaration(
         name="get_campaign_history",
@@ -86,15 +88,23 @@ _FUNCTION_DECLARATIONS = [
     ),
     types.FunctionDeclaration(
         name="create_campaign",
-        description="Finalize: persist the campaign (pending_approval) and queue one message per matched customer.",
+        description=(
+            "Finalize: persist the campaign (pending_approval) "
+            "and queue one message per matched customer."
+        ),
         parameters=types.Schema(
             type=_OBJ,
             properties={
                 "segment_filters": _FILTERS_SCHEMA,
-                "message": types.Schema(type=_STR, description="The short, on-brand campaign message."),
+                "message": types.Schema(
+                    type=_STR, description="The short, on-brand campaign message."
+                ),
                 "channel": types.Schema(type=_STR, description="whatsapp | sms | email | rcs"),
                 "confidence": types.Schema(type=_INT, description="0-100 confidence in the plan."),
-                "reason": types.Schema(type=_STR, description="One paragraph: why this audience/channel and exclusions."),
+                "reason": types.Schema(
+                    type=_STR,
+                    description="One paragraph: why this audience/channel and exclusions.",
+                ),
             },
             required=["segment_filters", "message", "channel", "confidence", "reason"],
         ),
@@ -122,7 +132,7 @@ async def _generate_with_backoff(client: genai.Client, contents: list, max_attem
             retryable = getattr(exc, "code", None) in (429, 503)
             if not retryable or attempt == max_attempts - 1:
                 raise
-            wait = min(2.0 * (2 ** attempt) + random.uniform(0, 1.5), 60.0)
+            wait = min(2.0 * (2**attempt) + random.uniform(0, 1.5), 60.0)
             await asyncio.sleep(wait)
 
 
@@ -151,7 +161,9 @@ def _explainability(plan: dict[str, Any]) -> dict[str, str]:
     if f.get("min_total_spend") is not None:
         bits.append(f"customers with total spend ≤ ₹{f['min_total_spend']:g} (not high-value)")
     if f.get("days_inactive") is not None:
-        bits.append(f"customers who ordered within the last {int(f['days_inactive'])} days (still active)")
+        bits.append(
+            f"customers who ordered within the last {int(f['days_inactive'])} days (still active)"
+        )
     if f.get("max_total_spend") is not None:
         bits.append(f"customers spending ≥ ₹{f['max_total_spend']:g}")
     if f.get("min_orders") is not None:
@@ -193,6 +205,9 @@ async def run_agent(prompt: str) -> AsyncIterator[str]:
     plan_result: dict[str, Any] | None = None
 
     try:
+        # Manual function-calling loop: each turn the model either returns tool
+        # calls (which we execute and feed back as function responses) or stops
+        # with no calls. We keep looping until it has called create_campaign.
         for _ in range(MAX_TURNS):
             response = await _generate_with_backoff(client, contents)
             calls = response.function_calls or []
@@ -236,10 +251,21 @@ async def run_agent(prompt: str) -> AsyncIterator[str]:
     comparison = tools.compare_channels(plan_result["audience_size"])["channels"]
     chosen = plan_result["channel"]
 
+    # Explicit list of ALL FOUR channels so the UI always shows the full comparison.
+    channel_comparison = [
+        {
+            "channel": ch,
+            "reach": metrics["projected_reach"],
+            "opens": metrics["projected_opens"],
+            "clicks": metrics["projected_clicks"],
+        }
+        for ch, metrics in comparison.items()
+    ]
+
     plan = {
         **plan_result,
         "projected": comparison.get(chosen, plan_result.get("projected")),
-        "channel_comparison": comparison,
+        "channel_comparison": channel_comparison,
         "explainability": _explainability(plan_result),
         "memory_note": _memory_note(history_result),
     }

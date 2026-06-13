@@ -40,6 +40,16 @@ def _recipient(channel: str, customer: Customer) -> str | None:
     return customer.email
 
 
+def render_message(template: str, name: str | None, city: str | None = None) -> str:
+    """Merge per-recipient fields into a message template.
+
+    {name} -> the customer's FIRST name (split on space), falling back to
+    "there" when there's no name; {city} -> the customer's city if present.
+    """
+    first_name = (name or "").split(" ")[0].strip() or "there"
+    return template.replace("{name}", first_name).replace("{city}", city or "your city")
+
+
 async def _deliver(payloads: list[dict[str, Any]]) -> None:
     """POST each prepared message to the channel service."""
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -79,7 +89,8 @@ async def send_campaign(campaign_id: str, session: AsyncSession = Depends(get_se
                 "message_id": str(message.id),
                 "recipient": _recipient(campaign.channel, customer),
                 "channel": campaign.channel,
-                "body": campaign.message,
+                # Personalise per recipient; campaign.message stays the template.
+                "body": render_message(campaign.message, customer.name, customer.city),
             }
         )
 
@@ -135,16 +146,15 @@ async def switch_channel(
                 "message_id": str(message.id),
                 "recipient": _recipient(req.new_channel, customer),
                 "channel": req.new_channel,
-                "body": campaign.message,
+                # Personalise per recipient; campaign.message stays the template.
+                "body": render_message(campaign.message, customer.name, customer.city),
             }
         )
 
     # A switch is a fresh delivery attempt: clear the prior event ledger so the
     # new channel's callbacks aren't swallowed by the idempotency constraint.
     if message_ids:
-        await session.execute(
-            delete(MessageEvent).where(MessageEvent.message_id.in_(message_ids))
-        )
+        await session.execute(delete(MessageEvent).where(MessageEvent.message_id.in_(message_ids)))
 
     await session.commit()
 

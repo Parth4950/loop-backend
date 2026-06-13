@@ -10,7 +10,7 @@ import asyncio
 import os
 import random
 import ssl
-from typing import Any, Optional
+from typing import Optional
 
 from google import genai
 from google.genai import errors, types
@@ -63,6 +63,6 @@ async def generate(
             retryable = getattr(exc, "code", None) in (429, 503)
             if not retryable or attempt == max_attempts - 1:
                 raise
-            wait = min(2.0 * (2 ** attempt) + random.uniform(0, 1.5), 60.0)
+            wait = min(2.0 * (2**attempt) + random.uniform(0, 1.5), 60.0)
             await asyncio.sleep(wait)
     return ""  # unreachable; loop either returns or raises
