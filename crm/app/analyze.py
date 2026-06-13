@@ -18,7 +18,8 @@ from sqlalchemy import func, select
 
 from .agent import llm
 from .db import AsyncSessionLocal
-from .models import Campaign, Message, MessageEvent, Order
+from .metrics import campaign_metrics
+from .models import Campaign, Message, Order
 
 logger = logging.getLogger("loop-crm.analyze")
 
@@ -33,11 +34,6 @@ _INSIGHT_SCHEMA = types.Schema(
     },
     required=["what_worked", "what_didnt", "next_step"],
 )
-
-
-def _safe_rate(numerator: int, denominator: int) -> float:
-    """Percentage rounded to 1 dp; 0.0 when the denominator is zero (no NaN)."""
-    return round(100 * numerator / denominator, 1) if denominator else 0.0
 
 
 def _fallback_text(stats: dict[str, Any]) -> dict[str, str]:
@@ -120,40 +116,16 @@ async def analyze(campaign_id: str):
                 .group_by(Message.status)
             )
         ).all()
-        counts = {status: n for status, n in status_rows}
-        total = sum(counts.values())
-        sent = total - counts.get("queued", 0)  # everything that left the queue
-
-        event_rows = (
-            await session.execute(
-                select(MessageEvent.event_type, func.count(func.distinct(MessageEvent.message_id)))
-                .join(Message, MessageEvent.message_id == Message.id)
-                .where(Message.campaign_id == cid)
-                .group_by(MessageEvent.event_type)
-            )
-        ).all()
-        ev = {event_type: n for event_type, n in event_rows}
-        delivered = ev.get("delivered", 0)
-        read = ev.get("read", 0)
-        opened = ev.get("opened", 0)
-        clicked = ev.get("clicked", 0)
-        converted = ev.get("converted", 0)
+        status_counts = {status: n for status, n in status_rows}
 
         revenue = await session.scalar(
             select(func.coalesce(func.sum(Order.amount), 0)).where(Order.campaign_id == cid)
         )
 
+    # Same cumulative funnel + rates the live tracker uses, so they can't diverge.
     stats: dict[str, Any] = {
-        "sent": sent,
-        "delivered": delivered,
-        "read": read,
-        "opened": opened,
-        "clicked": clicked,
-        "converted": converted,
+        **campaign_metrics(status_counts),
         "revenue": int(round(float(revenue or 0))),
-        "open_rate": _safe_rate(opened, delivered),
-        "click_rate": _safe_rate(clicked, opened),
-        "conversion_rate": _safe_rate(converted, clicked),
     }
 
     insight = await _insight(campaign.channel, stats)

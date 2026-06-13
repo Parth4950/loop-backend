@@ -16,22 +16,12 @@ from starlette.responses import StreamingResponse
 
 from . import events
 from .db import AsyncSessionLocal
+from .metrics import campaign_metrics
 from .models import Campaign, Customer, Message
 
 router = APIRouter()
 
 KEEPALIVE_SECONDS = 15
-AGG_STATUSES = [
-    "queued",
-    "sent",
-    "delivered",
-    "read",
-    "opened",
-    "clicked",
-    "converted",
-    "failed",
-    "retrying",
-]
 
 
 async def _build_snapshot(campaign_id: UUID) -> dict:
@@ -50,10 +40,16 @@ async def _build_snapshot(campaign_id: UUID) -> dict:
         ).all()
 
     messages = [{"id": str(m.id), "customer_name": c.name, "status": m.status} for m, c in rows]
-    aggregates = {status: 0 for status in AGG_STATUSES}
+
+    status_counts: dict[str, int] = {}
     for m in messages:
-        if m["status"] in aggregates:
-            aggregates[m["status"]] += 1
+        status_counts[m["status"]] = status_counts.get(m["status"], 0) + 1
+
+    # Cumulative funnel + rates from the shared helper — identical math to /analyze.
+    aggregates = campaign_metrics(status_counts)
+    aggregates["total"] = len(messages)
+    aggregates["queued"] = status_counts.get("queued", 0)
+    aggregates["retrying"] = status_counts.get("retrying", 0)
 
     # Expose the stored channel so the tracker badge reads the single source of
     # truth (campaign.channel) rather than inferring it.
