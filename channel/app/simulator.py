@@ -103,7 +103,14 @@ async def simulate_message(
     channel: str,
     body: str,
 ) -> None:
-    """Run the full delivery/engagement funnel for one message."""
+    """Run the full delivery/engagement funnel for one message.
+
+    Every dispatched message ends in a terminal receipt — `delivered` or
+    `failed` — so the CRM never leaves it stuck in 'sent'. On a rigged channel
+    only ~18% deliver, so the other ~82% each fire a `failed` receipt; that is
+    what drives the CRM's processed count (delivered + failed) up to the
+    25/50/75% milestones.
+    """
     funnel = FUNNEL.get(channel, _DEFAULT_FUNNEL)
 
     deliver_prob = funnel["deliver"]
@@ -112,41 +119,49 @@ async def simulate_message(
         logger.info("RIGGED low delivery for channel=%s (msg=%s)", channel, message_id)
 
     async with httpx.AsyncClient() as client:
-        # 1. initial send latency
-        await _sleep(2, 8)
+        delivered = False
+        try:
+            # 1. initial send latency
+            await _sleep(2, 8)
 
-        # 2. 10% first-attempt failure -> a retry, then proceed
-        if random.random() < 0.10:
-            await _post_callback(client, message_id, "retry")
-            await _sleep(5, 5)
+            # 2. 10% first-attempt failure -> a retry, then proceed
+            if random.random() < 0.10:
+                await _post_callback(client, message_id, "retry")
+                await _sleep(5, 5)
 
-        # 3. delivery gate
-        if random.random() >= deliver_prob:
-            await _post_callback(client, message_id, "failed")
-            return
-        await _post_callback(client, message_id, "delivered")
+            # 3. delivery gate — a miss ALWAYS fires `failed` (after the send
+            #    delay), so nothing is left undelivered. Rigged channels miss ~82%.
+            if random.random() >= deliver_prob:
+                await _post_callback(client, message_id, "failed")
+                return
+            await _post_callback(client, message_id, "delivered")
+            delivered = True
 
-        # 4. read (between delivered and opened)
-        await _sleep(2, 6)
-        if random.random() >= funnel["read"]:
-            return
-        await _post_callback(client, message_id, "read")
+            # 4. read (between delivered and opened)
+            await _sleep(2, 6)
+            if random.random() >= funnel["read"]:
+                return
+            await _post_callback(client, message_id, "read")
 
-        # 5. open
-        await _sleep(3, 10)
-        if random.random() >= funnel["open"]:
-            return
-        await _post_callback(client, message_id, "opened")
+            # 5. open
+            await _sleep(3, 10)
+            if random.random() >= funnel["open"]:
+                return
+            await _post_callback(client, message_id, "opened")
 
-        # 6. click
-        await _sleep(2, 6)
-        if random.random() >= funnel["click"]:
-            return
-        await _post_callback(client, message_id, "clicked")
+            # 6. click
+            await _sleep(2, 6)
+            if random.random() >= funnel["click"]:
+                return
+            await _post_callback(client, message_id, "clicked")
 
-        # 7. convert
-        await _sleep(2, 5)
-        if random.random() >= funnel["convert"]:
-            return
-        amount = random.randint(150, 1200)
-        await _post_callback(client, message_id, "converted", payload={"amount": amount})
+            # 7. convert
+            await _sleep(2, 5)
+            if random.random() >= funnel["convert"]:
+                return
+            amount = random.randint(150, 1200)
+            await _post_callback(client, message_id, "converted", payload={"amount": amount})
+        except Exception as exc:  # safety net: never leave a message stuck in 'sent'
+            logger.exception("lifecycle error (msg=%s): %s", message_id, exc)
+            if not delivered:
+                await _post_callback(client, message_id, "failed")
